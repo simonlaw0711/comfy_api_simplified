@@ -86,27 +86,36 @@ class ComfyApiWrapper:
         _log.debug(resp)
         prompt_id = resp["prompt_id"]
         _log.info(f"Connecting to {self.ws_url.format(client_id).split('@')[-1]}")
-        async with websockets.connect(uri=self.ws_url.format(client_id)) as websocket:
+        
+        # Increase timeout to 5 minutes (300 seconds)
+        async with websockets.connect(
+            uri=self.ws_url.format(client_id),
+            ping_interval=None,
+            ping_timeout=300
+        ) as websocket:
             while True:
-                # out = ws.recv()
-                out = await websocket.recv()
-                if isinstance(out, str):
-                    message = json.loads(out)
-                    if message["type"] == "crystools.monitor":
-                        continue
-                    _log.debug(message)
-                    if message["type"] == "execution_error":
-                        data = message["data"]
-                        if data["prompt_id"] == prompt_id:
-                            raise Exception("Execution error occurred.")
-                    if message["type"] == "status":
-                        data = message["data"]
-                        if data["status"]["exec_info"]["queue_remaining"] == 0:
-                            return prompt_id
-                    if message["type"] == "executing":
-                        data = message["data"]
-                        if data["node"] is None and data["prompt_id"] == prompt_id:
-                            return prompt_id
+                try:
+                    out = await asyncio.wait_for(websocket.recv(), timeout=300)
+                    if isinstance(out, str):
+                        message = json.loads(out)
+                        if message["type"] == "crystools.monitor":
+                            continue
+                        _log.debug(message)
+                        if message["type"] == "execution_error":
+                            data = message["data"]
+                            if data["prompt_id"] == prompt_id:
+                                raise Exception("Execution error occurred.")
+                        if message["type"] == "status":
+                            data = message["data"]
+                            if data["status"]["exec_info"]["queue_remaining"] == 0:
+                                return prompt_id
+                        if message["type"] == "executing":
+                            data = message["data"]
+                            if data["node"] is None and data["prompt_id"] == prompt_id:
+                                return prompt_id
+                except asyncio.TimeoutError:
+                    print("Connection timed out. Retrying...")
+                    continue
 
     def queue_and_wait_images(
         self, prompt: ComfyWorkflowWrapper, output_node_title: str
@@ -124,12 +133,33 @@ class ComfyApiWrapper:
         Raises:
             Exception: If the request fails with a non-200 status code.
         """
-
         loop = asyncio.get_event_loop()
-        prompt_id = loop.run_until_complete(self.queue_prompt_and_wait(prompt))
+        prompt_id = loop.run_until_complete(self.queue_prompt_and_wait(prompt.get_prompt()))
         history = self.get_history(prompt_id)
         image_node_id = prompt.get_node_id(output_node_title)
-        images = history[prompt_id]["outputs"][image_node_id]["images"]
+        
+        print(f"Prompt ID: {prompt_id}")
+        print(f"Image Node ID: {image_node_id}")
+        print(f"History: {json.dumps(history, indent=2)}")
+        print(f"All node IDs: {prompt.get_node_ids()}")
+        
+        if prompt_id not in history:
+            raise KeyError(f"Prompt ID {prompt_id} not found in history")
+        
+        if "outputs" not in history[prompt_id]:
+            raise KeyError(f"No outputs found for prompt ID {prompt_id}")
+        
+        # Try to find the correct node ID for the output
+        output_node_id = None
+        for node_id, node_data in history[prompt_id]["outputs"].items():
+            if "images" in node_data:
+                output_node_id = node_id
+                break
+        
+        if output_node_id is None:
+            raise KeyError(f"No node with 'images' output found. Available nodes: {list(history[prompt_id]['outputs'].keys())}")
+        
+        images = history[prompt_id]["outputs"][output_node_id]["images"]
         return {
             image["filename"]: self.get_image(
                 image["filename"], image["subfolder"], image["type"]
