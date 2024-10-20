@@ -95,3 +95,21 @@ class ComfyWorkflowWrapper(dict):
         workflow_str = json.dumps(self, indent=4)
         with open(path, "w+") as f:
             f.write(workflow_str)
+
+    def get_prompt(self):
+        """
+        Get the entire workflow as a prompt.
+
+        Returns:
+            dict: The workflow prompt.
+        """
+        return dict(self)
+
+    def get_node_ids(self):
+        """
+        Get a dictionary of node titles and their corresponding IDs.
+
+        Returns:
+            dict: A dictionary where keys are node titles and values are node IDs.
+        """
+        return {node["_meta"]["title"]: id for id, node in self.items()}
