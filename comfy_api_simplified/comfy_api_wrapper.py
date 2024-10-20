@@ -136,10 +136,10 @@ class ComfyApiWrapper:
         loop = asyncio.get_event_loop()
         prompt_id = loop.run_until_complete(self.queue_prompt_and_wait(prompt.get_prompt()))
         history = self.get_history(prompt_id)
-        image_node_id = prompt.get_node_id(output_node_title)
+        output_node_id = prompt.get_node_id(output_node_title)
         
         print(f"Prompt ID: {prompt_id}")
-        print(f"Image Node ID: {image_node_id}")
+        print(f"Output Node ID: {output_node_id}")
         print(f"All node IDs: {prompt.get_node_ids()}")
         
         if prompt_id not in history:
@@ -148,23 +148,34 @@ class ComfyApiWrapper:
         if "outputs" not in history[prompt_id]:
             raise KeyError(f"No outputs found for prompt ID {prompt_id}")
         
-        # Try to find the correct node ID for the output
-        output_node_id = None
-        for node_id, node_data in history[prompt_id]["outputs"].items():
-            if "images" in node_data:
-                output_node_id = node_id
-                break
+        if output_node_id not in history[prompt_id]["outputs"]:
+            raise KeyError(f"Output node {output_node_id} not found in history")
         
-        if output_node_id is None:
-            raise KeyError(f"No node with 'images' output found. Available nodes: {list(history[prompt_id]['outputs'].keys())}")
+        output_data = history[prompt_id]["outputs"][output_node_id]
         
-        images = history[prompt_id]["outputs"][output_node_id]["images"]
-        return {
-            image["filename"]: self.get_image(
-                image["filename"], image["subfolder"], image["type"]
-            )
-            for image in images
-        }
+        if "images" in output_data:
+            return {
+                image["filename"]: self.get_image(
+                    image["filename"], image["subfolder"], image["type"]
+                )
+                for image in output_data["images"]
+            }
+        elif "gifs" in output_data:
+            return {
+                gif["filename"]: self.get_image(
+                    gif["filename"], gif["subfolder"], gif["type"]
+                )
+                for gif in output_data["gifs"]
+            }
+        elif "videos" in output_data:
+            return {
+                video["filename"]: self.get_image(
+                    video["filename"], video["subfolder"], video["type"]
+                )
+                for video in output_data["videos"]
+            }
+        else:
+            raise KeyError(f"No images, gifs, or videos found in output node {output_node_id}")
 
     def get_queue(self) -> dict:
         """
