@@ -140,7 +140,6 @@ class ComfyApiWrapper:
         
         print(f"Prompt ID: {prompt_id}")
         print(f"Image Node ID: {image_node_id}")
-        print(f"History: {json.dumps(history, indent=2)}")
         print(f"All node IDs: {prompt.get_node_ids()}")
         
         if prompt_id not in history:
